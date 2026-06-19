@@ -111,3 +111,8 @@ Thumbs.db
 # Alembic / migration local cache
 # =========================
 alembic.log
+
+# Static files generated from React/Vite build
+app/static/*
+!app/static/.gitkeep
+

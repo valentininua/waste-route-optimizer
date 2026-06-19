@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: waste_route_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: waste_routes
+      POSTGRES_USER: waste
+      POSTGRES_PASSWORD: waste
+    ports:
+      - "5439:5432"
+    volumes:
+      - ./docker-data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U waste -d waste_routes"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    container_name: waste_route_app
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://waste:waste@postgres:5432/waste_routes}"
+      NOMINATIM_URL: "${NOMINATIM_URL:-https://nominatim.openstreetmap.org/search}"
+      NOMINATIM_EMAIL: "${NOMINATIM_EMAIL:-work@valentin.in.ua}"
+      OSRM_URL: "${OSRM_URL:-https://router.project-osrm.org}"
+      DEFAULT_CITY: "${DEFAULT_CITY:-Jelgava}"
+      DEFAULT_COUNTRY: "${DEFAULT_COUNTRY:-Latvia}"
+      APP_USER_AGENT: "${APP_USER_AGENT:-waste-route-optimizer/1.16 (contact: work@valentin.in.ua)}"
+      ALLOW_APPROXIMATE_GEOCODING_FALLBACK: "${ALLOW_APPROXIMATE_GEOCODING_FALLBACK:-true}"
+      ALLOW_HAVERSINE_FALLBACK: "${ALLOW_HAVERSINE_FALLBACK:-true}"
+      ALLOW_APPROXIMATE_MATRIX_FOR_LARGE_ROUTES: "${ALLOW_APPROXIMATE_MATRIX_FOR_LARGE_ROUTES:-true}"
+      MAX_PUBLIC_OSRM_TABLE_POINTS: "${MAX_PUBLIC_OSRM_TABLE_POINTS:-100}"
+      MAX_OSRM_ROUTE_WAYPOINTS: "${MAX_OSRM_ROUTE_WAYPOINTS:-80}"
+      MAX_POINTS_TO_OPTIMIZE: "${MAX_POINTS_TO_OPTIMIZE:-450}"
+      GEOCODING_SLEEP_SECONDS: "${GEOCODING_SLEEP_SECONDS:-1.1}"
+      APPROXIMATE_CENTER_LAT: "${APPROXIMATE_CENTER_LAT:-56.6511}"
+      APPROXIMATE_CENTER_LNG: "${APPROXIMATE_CENTER_LNG:-23.7214}"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+
+

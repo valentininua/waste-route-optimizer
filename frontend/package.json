@@ -1,0 +1,19 @@
+{
+  "name": "waste-route-optimizer-ui",
+  "version": "1.16.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "6.0.2",
+    "vite": "8.0.16",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "leaflet": "1.9.4"
+  },
+  "devDependencies": {}
+}

@@ -1,0 +1,113 @@
+docker-data/*
+# =========================
+# Environment
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+*.so
+.Python
+.python-version
+
+venv/
+.venv/
+env/
+ENV/
+
+pip-wheel-metadata/
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# =========================
+# Tests / coverage
+# =========================
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# =========================
+# Type check / linters
+# =========================
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+
+# =========================
+# Node / React / Vite
+# =========================
+node_modules/
+frontend/node_modules/
+
+frontend/dist/
+frontend/.vite/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================
+# Docker / local database data
+# =========================
+docker-data/
+postgres-data/
+pgdata/
+
+# Uploaded/temp files
+uploads/
+tmp/
+temp/
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# IDE / editors
+# =========================
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# =========================
+# Archives / generated packages
+# =========================
+*.zip
+*.tar
+*.tar.gz
+*.rar
+
+# =========================
+# Local SQLite / DB files
+# =========================
+*.sqlite
+*.sqlite3
+*.db
+
+# =========================
+# Alembic / migration local cache
+# =========================
+alembic.log

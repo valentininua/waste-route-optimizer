@@ -8,3 +8,13 @@ https://maps.valentin.in.ua {
     encode gzip zstd
     reverse_proxy app:8000
 }
+
+:80 {
+    @not_allowed {
+        not host maps.valentin.in.ua localhost 127.0.0.1
+    }
+
+    redir @not_allowed http://maps.valentin.in.ua{uri} 308
+
+    respond "Not found" 404
+}

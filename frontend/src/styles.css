@@ -11,17 +11,21 @@ header { background: #102a43; color: white; padding: 22px 32px; }
 header h1 { margin: 0 0 6px; font-size: 26px; }
 header p { margin: 0; color: #cbd5e1; }
 .top-menu { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.top-menu a { color: #bfdbfe; font-weight: 700; text-decoration: none; border: 1px solid rgba(191, 219, 254, .35); border-radius: 999px; padding: 7px 11px; }
-.top-menu a:hover { background: rgba(191, 219, 254, .14); }
+.top-menu a, .menu-button { color: #bfdbfe; font-weight: 600; font-size: 14px; text-decoration: none; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(191, 219, 254, 0.2); border-radius: 999px; padding: 8px 16px; transition: all 0.2s ease; cursor: pointer; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); }
+.top-menu a:hover, .menu-button:hover { background: rgba(191, 219, 254, 0.15); border-color: rgba(191, 219, 254, 0.4); color: #fff; transform: translateY(-1px); }
+.top-menu a:active, .menu-button:active { transform: translateY(0); }
 main { padding: 24px 32px; }
 .panel, .metrics, .map-grid > div { background: white; border: 1px solid #d8dee6; border-radius: 12px; padding: 18px; box-shadow: 0 1px 2px rgba(15, 23, 42, .06); }
 h2 { margin: 0 0 14px; font-size: 18px; }
-button { border: 0; border-radius: 8px; background: #0f766e; color: white; padding: 10px 14px; cursor: pointer; font-weight: 600; }
+button { border: 0; border-radius: 8px; background: #0f766e; color: white; padding: 10px 16px; cursor: pointer; font-weight: 600; transition: all 0.2s ease; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1); }
+button:not(:disabled):hover { background: #115e59; transform: translateY(-1px); box-shadow: 0 4px 6px rgba(15, 23, 42, 0.15); }
+button:not(:disabled):active { transform: translateY(0); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1); }
 button:disabled { opacity: .45; cursor: not-allowed; }
-input, select { padding: 9px; border: 1px solid #cbd5e1; border-radius: 8px; max-width: 100%; }
+input, select { padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; max-width: 100%; transition: border-color 0.2s ease, box-shadow 0.2s ease; font-family: inherit; font-size: 14px; background: #fff; }
+input:focus, select:focus { outline: none; border-color: #0f766e; box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15); }
 .actions { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 pre { white-space: pre-wrap; background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; max-height: 220px; overflow: auto; }
-.metrics { margin: 18px 0; display: grid; grid-template-columns: repeat(8, minmax(110px, 1fr)); gap: 12px; }
+.metrics { margin: 18px 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; }
 .metric { border-left: 4px solid #0f766e; padding-left: 10px; overflow-wrap: anywhere; }
 .metric b { display: block; font-size: 20px; }
 .metric span { color: #64748b; font-size: 12px; }
@@ -37,20 +41,55 @@ path.leaflet-interactive.route-line-optimized { stroke: #22c55e !important; stro
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { border-bottom: 1px solid #e2e8f0; padding: 7px; text-align: left; vertical-align: top; }
 th { position: sticky; top: 0; background: #f8fafc; }
-@media (max-width: 1050px) { .map-grid, .metrics { grid-template-columns: 1fr; } }
 
-.menu-button {
-  background: transparent;
-  color: #bfdbfe;
-  font-weight: 700;
-  border: 1px solid rgba(191, 219, 254, .35);
-  border-radius: 999px;
-  padding: 7px 11px;
+@media (max-width: 1050px) {
+  .map-grid { grid-template-columns: 1fr; }
 }
 
-.menu-button:hover {
-  background: rgba(191, 219, 254, .14);
+@media (max-width: 768px) {
+  header { padding: 16px; }
+  .header-main { flex-direction: column; gap: 16px; align-items: stretch; }
+  
+  .top-menu {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    width: 100%;
+  }
+  .top-menu a, .menu-button {
+    text-align: center;
+    justify-content: center;
+    display: flex;
+    align-items: center;
+    width: 100%;
+  }
+  
+  main { padding: 16px; }
+  
+  .panel form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .panel form input, .panel form button {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .actions { flex-direction: column; align-items: stretch; gap: 12px; }
+  .actions label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+  }
+  .actions button, .actions select { width: 100%; box-sizing: border-box; }
+  
+  #map { height: 400px; }
+  .table-wrap { max-height: 400px; }
 }
+
+/* .menu-button styles are merged with .top-menu a above */
 
 .modal-backdrop {
   position: fixed;

@@ -39,8 +39,7 @@ services:
       APPROXIMATE_CENTER_LAT: "${APPROXIMATE_CENTER_LAT:-56.6511}"
       APPROXIMATE_CENTER_LNG: "${APPROXIMATE_CENTER_LNG:-23.7214}"
     ports:
-      - "8000:8000"
-      - "80:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,3 +49,24 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: waste_route_caddy
+    restart: unless-stopped
+    profiles:
+      - server
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  caddy_data:
+  caddy_config:

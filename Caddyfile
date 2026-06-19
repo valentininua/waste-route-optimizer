@@ -1,0 +1,10 @@
+{
+    email work@valentin.in.ua
+    auto_https disable_redirects
+}
+
+http://maps.valentin.in.ua,
+https://maps.valentin.in.ua {
+    encode gzip zstd
+    reverse_proxy app:8000
+}

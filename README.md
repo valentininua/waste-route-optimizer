@@ -4,6 +4,17 @@ Production-oriented technical-test implementation for waste collection route opt
 
 The system imports a multi-route Excel file, splits it into individual ML route blocks, geocodes collection-point addresses, calculates road-based route metrics, optimizes a selected route, compares original vs optimized distance/time, and exposes the result through a REST API and a React + OpenStreetMap web UI.
 
+
+
+
+## Demo video
+
+[![Watch the demo](https://img.youtube.com/vi/zr3Thz_4Jt4/maxresdefault.jpg)](https://www.youtube.com/watch?v=zr3Thz_4Jt4)
+
+
+
+
+
 ## Technical-task coverage
 
 | Requirement | Status |
@@ -295,3 +306,7 @@ The top menu includes:
 - **Swagger UI**, **API Reference**, **OpenAPI JSON**, and **Health** links.
 
 Optimization progress is displayed with a visible progress bar. Upload/parsing operations show an indeterminate bar, while optimization runs show the percentage reported by the REST polling endpoint.
+
+
+
+ 

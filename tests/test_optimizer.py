@@ -42,8 +42,8 @@ def test_two_opt_delta_matches_naive_two_opt_for_asymmetric_matrix():
         while improved and iterations < max_iterations:
             improved = False
             iterations += 1
-            for i in range(1, len(best) - 2):
-                for k in range(i + 1, len(best) - 1):
+            for i in range(1, len(best) - 1):
+                for k in range(i + 1, len(best)):
                     candidate = best[:i] + list(reversed(best[i : k + 1])) + best[k + 1 :]
                     candidate_cost = route_cost(candidate, matrix)
                     if candidate_cost + 1e-9 < best_cost:
@@ -70,3 +70,17 @@ def test_two_opt_delta_matches_naive_two_opt_for_asymmetric_matrix():
 
     assert optimized == expected
     assert route_cost(optimized, matrix) == route_cost(expected, matrix)
+
+
+def test_two_opt_can_move_last_point_in_open_route():
+    matrix = [
+        [0, 10, 1],
+        [10, 0, 10],
+        [10, 1, 0],
+    ]
+    initial = [0, 1, 2]
+    optimized = two_opt_open_path(initial, matrix)
+
+    assert optimized == [0, 2, 1]
+    assert route_cost(optimized, matrix) == 2
+    assert route_cost(optimized, matrix) < route_cost(initial, matrix)

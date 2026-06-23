@@ -52,6 +52,26 @@ class RouteJobRepository:
         self.db.commit()
         return int(deleted or 0)
 
+    def _deduplicated_route_ids_query(self, *, route_date: str | None = None, route_code: str | None = None):
+        """Return SQL query with the latest row per imported route identity.
+
+        Route identity is defined by the fields that come from the Excel import:
+        filename, route_code, route_date and source_row. Older implementation did
+        this in Python after loading a large candidate set. Using row_number() keeps
+        deduplication in the database and scales better for large imports.
+        """
+        row_number = func.row_number().over(
+            partition_by=(RouteJob.filename, RouteJob.route_code, RouteJob.route_date, RouteJob.source_row),
+            order_by=RouteJob.id.desc(),
+        ).label("row_number")
+
+        query = self.db.query(RouteJob.id.label("id"), row_number)
+        if route_date:
+            query = query.filter(RouteJob.route_date == route_date)
+        if route_code:
+            query = query.filter(func.lower(RouteJob.route_code) == route_code.lower())
+        return query.subquery()
+
     def list(
         self,
         *,
@@ -73,27 +93,28 @@ class RouteJobRepository:
                 .all()
             )
 
-        raw_jobs = query.order_by(RouteJob.id.desc()).limit(limit * 20).all()
-        return self.deduplicate_latest(raw_jobs)[:limit]
-
-    @staticmethod
-    def deduplicate_latest(jobs: list[RouteJob]) -> list[RouteJob]:
-        seen: set[tuple[str | None, str | None, str | None, int | None]] = set()
-        result: list[RouteJob] = []
-        for job in sorted(jobs, key=lambda item: item.id, reverse=True):
-            key = (job.filename, job.route_code, job.route_date, job.source_row)
-            if key in seen:
-                continue
-            seen.add(key)
-            result.append(job)
-        return sorted(result, key=lambda item: (item.route_date or "", item.route_code or "", item.id))
+        latest_ids = self._deduplicated_route_ids_query(route_date=route_date, route_code=route_code)
+        return (
+            self.db.query(RouteJob)
+            .join(latest_ids, RouteJob.id == latest_ids.c.id)
+            .filter(latest_ids.c.row_number == 1)
+            .order_by(RouteJob.route_date.asc(), RouteJob.route_code.asc(), RouteJob.id.asc())
+            .limit(limit)
+            .all()
+        )
 
     def count(self) -> int:
         return self.db.query(RouteJob).count()
 
-    def unique_count(self, scan_limit: int = 20000) -> int:
-        jobs = self.db.query(RouteJob).order_by(RouteJob.id.desc()).limit(scan_limit).all()
-        return len(self.deduplicate_latest(jobs))
+    def unique_count(self) -> int:
+        latest_ids = self._deduplicated_route_ids_query()
+        return int(
+            self.db.query(func.count())
+            .select_from(latest_ids)
+            .filter(latest_ids.c.row_number == 1)
+            .scalar()
+            or 0
+        )
 
     def optimized_count(self) -> int:
         return self.db.query(RouteJob).filter(RouteJob.status == "optimized").count()

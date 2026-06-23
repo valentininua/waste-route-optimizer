@@ -7,6 +7,9 @@ import re
 from collections import OrderedDict
 
 import httpx
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -318,13 +321,51 @@ def _store_cache_aliases(
     quality: str,
     successful_query: str | None = None,
 ) -> None:
+    """Store geocoding result for all candidate aliases without a read/write race.
+
+    The previous implementation checked whether an alias existed and then inserted
+    it. Two parallel optimization runs could pass that check at the same time and
+    then one of them would fail on the unique query constraint. Here the database
+    owns deduplication through INSERT .. ON CONFLICT DO NOTHING where supported.
+    """
+    rows = []
     for alias in candidates:
-        existing = db.query(GeocodeCache).filter(GeocodeCache.query == alias).one_or_none()
-        if existing:
-            continue
         alias_quality = quality if alias == successful_query or successful_query is None else f"alias:{quality}"
-        db.add(GeocodeCache(query=alias, lat=lat, lng=lng, display_name=display_name, quality=alias_quality))
-    db.commit()
+        rows.append({
+            "query": alias,
+            "lat": lat,
+            "lng": lng,
+            "display_name": display_name,
+            "quality": alias_quality,
+        })
+
+    if not rows:
+        return
+
+    dialect_name = db.get_bind().dialect.name
+    if dialect_name == "postgresql":
+        statement = postgres_insert(GeocodeCache).values(rows)
+        statement = statement.on_conflict_do_nothing(index_elements=["query"])
+        db.execute(statement)
+        db.commit()
+        return
+
+    if dialect_name == "sqlite":
+        statement = sqlite_insert(GeocodeCache).values(rows)
+        statement = statement.on_conflict_do_nothing(index_elements=["query"])
+        db.execute(statement)
+        db.commit()
+        return
+
+    # Fallback for other SQLAlchemy dialects: preserve correctness even if the
+    # dialect does not expose ON CONFLICT syntax. A concurrent insert may still
+    # trigger IntegrityError, in which case the cache row already exists and can
+    # be safely ignored.
+    try:
+        db.add_all([GeocodeCache(**row) for row in rows])
+        db.commit()
+    except IntegrityError:
+        db.rollback()
 
 
 async def geocode_address(db: Session, address: str) -> tuple[float, float, str]:

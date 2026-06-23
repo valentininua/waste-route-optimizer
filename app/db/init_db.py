@@ -27,6 +27,9 @@ POSTGRES_MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS ix_optimization_runs_status ON optimization_runs (status)",
     "CREATE INDEX IF NOT EXISTS ix_collection_points_original_order ON collection_points (original_order)",
     "CREATE INDEX IF NOT EXISTS ix_collection_points_optimized_order ON collection_points (optimized_order)",
+    "CREATE INDEX IF NOT EXISTS ix_route_jobs_import_identity ON route_jobs (filename, route_code, route_date, source_row, id DESC)",
+    "DELETE FROM geocode_cache a USING geocode_cache b WHERE a.query = b.query AND a.id < b.id",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_geocode_query ON geocode_cache (query)",
 ]
 
 SQLITE_MIGRATIONS = [
@@ -41,6 +44,8 @@ SQLITE_MIGRATIONS = [
     "ALTER TABLE collection_points ADD COLUMN service_date VARCHAR(32)",
     "ALTER TABLE collection_points ADD COLUMN time_spent VARCHAR(32)",
     "ALTER TABLE collection_points ADD COLUMN geocode_quality VARCHAR(64)",
+    "CREATE INDEX IF NOT EXISTS ix_route_jobs_import_identity ON route_jobs (filename, route_code, route_date, source_row, id DESC)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_geocode_query ON geocode_cache (query)",
 ]
 
 

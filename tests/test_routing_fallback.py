@@ -1,7 +1,7 @@
 import pytest
 
 from app.services import routing
-from app.services.routing import distance_duration_matrix, route_for_order
+from app.services.routing import OSRMProviderError, distance_duration_matrix, route_for_order
 
 
 @pytest.mark.asyncio
@@ -21,7 +21,7 @@ async def test_route_for_order_falls_back_when_osrm_route_fails(monkeypatch):
     monkeypatch.setattr(routing.settings, "allow_haversine_fallback", True)
 
     async def fail(*_args, **_kwargs):
-        raise RuntimeError("OSRM unavailable")
+        raise OSRMProviderError("OSRM unavailable")
 
     monkeypatch.setattr(routing, "_osrm_route_chunk", fail)
     coords = [(56.65, 23.72), (56.66, 23.73)]

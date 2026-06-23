@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from time import time
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.db.session import get_db
 from app.dto import OptimizationRunDto, RouteGeometryDto, RouteJobDto, StatsDto, UploadResponseDto
 from app.models import CollectionPoint
@@ -16,7 +19,34 @@ from app.tasks.optimization_tasks import run_optimization_task
 
 router = APIRouter()
 UPLOAD_DIR = Path("/app/uploads")
-MAX_ROUTES_IN_UPLOAD_RESPONSE = 100
+CHUNK_SIZE = 1024 * 1024
+
+
+def cleanup_stale_uploads() -> None:
+    """Remove orphaned upload temp files left by a previous crash/restart."""
+    settings = get_settings()
+    if not UPLOAD_DIR.exists():
+        return
+    cutoff = time() - settings.upload_cleanup_age_seconds
+    for path in UPLOAD_DIR.iterdir():
+        if path.is_file() and path.stat().st_mtime < cutoff:
+            path.unlink(missing_ok=True)
+
+
+async def _save_upload_with_size_limit(file: UploadFile, path: Path) -> int:
+    settings = get_settings()
+    max_size = settings.max_upload_size_bytes
+    total = 0
+    with path.open("wb") as handle:
+        while chunk := await file.read(CHUNK_SIZE):
+            total += len(chunk)
+            if total > max_size:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Uploaded file is too large. Max size is {max_size} bytes.",
+                )
+            handle.write(chunk)
+    return total
 
 
 @router.post(
@@ -41,14 +71,15 @@ async def upload_file(
         raise HTTPException(status_code=400, detail="Upload an Excel file: .xlsx or .xls")
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    cleanup_stale_uploads()
     path = UPLOAD_DIR / f"{uuid4()}_{Path(file.filename).name}"
-    path.write_bytes(await file.read())
 
     try:
+        await _save_upload_with_size_limit(file, path)
         route_jobs = RouteJobRepository(db)
         deleted_count = route_jobs.delete_by_filename(file.filename) if replace_existing else 0
         jobs = create_jobs_from_excel(db, path, file.filename)
-        visible_jobs = jobs[:MAX_ROUTES_IN_UPLOAD_RESPONSE]
+        visible_jobs = jobs[: get_settings().max_routes_in_upload_response]
         suffix = f" Previous jobs removed: {deleted_count}." if replace_existing else " Duplicate imports are allowed."
         return {
             "filename": file.filename,
@@ -62,6 +93,8 @@ async def upload_file(
                 + suffix
             ),
         }
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
@@ -122,15 +155,31 @@ def start_optimization_run(job_id: int, background_tasks: BackgroundTasks, db: S
     route_jobs = RouteJobRepository(db)
     optimization_runs = OptimizationRunRepository(db)
 
-    job = route_jobs.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Route job not found")
+    try:
+        job = route_jobs.get_for_update(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Route job not found")
 
-    active_run = optimization_runs.latest_active_for_route(job_id)
-    if active_run:
-        return optimization_run_to_resource(active_run, include_route=True)
+        active_run = optimization_runs.latest_active_for_route(job_id)
+        if active_run:
+            return optimization_run_to_resource(active_run, include_route=True)
 
-    run = optimization_runs.create_queued(job_id)
+        run = optimization_runs.create_queued(job_id, commit=False)
+        db.commit()
+        db.refresh(run)
+    except HTTPException:
+        db.rollback()
+        raise
+    except IntegrityError:
+        # Final protection for concurrent requests: a partial unique index allows
+        # only one queued/running optimization run per route. If another request
+        # created it first, return that active run instead of failing.
+        db.rollback()
+        active_run = optimization_runs.latest_active_for_route(job_id)
+        if active_run:
+            return optimization_run_to_resource(active_run, include_route=True)
+        raise HTTPException(status_code=409, detail="Optimization run already exists for this route")
+
     background_tasks.add_task(run_optimization_task, job_id, run.id)
     return optimization_run_to_resource(run, include_route=True)
 

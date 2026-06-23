@@ -19,6 +19,19 @@ class RouteJobRepository:
     def get(self, job_id: int) -> RouteJob | None:
         return self.db.get(RouteJob, job_id)
 
+    def get_for_update(self, job_id: int) -> RouteJob | None:
+        """Load a route row with a DB lock where supported.
+
+        This protects start_optimization_run from two concurrent requests that
+        both check for an active run and then both create a queued run. SQLite
+        ignores row-level locking, so the partial unique index on active runs is
+        still the final protection.
+        """
+        query = self.db.query(RouteJob).filter(RouteJob.id == job_id)
+        if self.db.get_bind().dialect.name == "postgresql":
+            query = query.with_for_update()
+        return query.one_or_none()
+
     def delete_by_filename(self, filename: str) -> int:
         """Delete all imported jobs for a file using bulk SQL statements.
 

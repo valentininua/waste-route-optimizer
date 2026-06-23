@@ -7,9 +7,11 @@ from fastapi import FastAPI
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import router as routes_router
+from app.api.routes import cleanup_stale_uploads, router as routes_router
 from app.core.api_reference import render_api_reference_html
+from app.core.config import get_settings
 from app.core.logging import RequestLoggingMiddleware, configure_logging
 from app.db.init_db import init_db
 
@@ -28,6 +30,7 @@ OPENAPI_TAGS = [
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
+    cleanup_stale_uploads()
     yield
 
 
@@ -47,6 +50,16 @@ app = FastAPI(
     openapi_url="/openapi.json",
     lifespan=lifespan,
 )
+settings = get_settings()
+if settings.cors_enabled and settings.cors_origin_list:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
 app.add_middleware(RequestLoggingMiddleware)
 app.include_router(routes_router, prefix="/api")
 

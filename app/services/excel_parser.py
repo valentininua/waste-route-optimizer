@@ -65,10 +65,7 @@ def _clean_cell(value: Any) -> str:
             return ""
     except (TypeError, ValueError):
         pass
-    text = str(value).strip()
-    if text.lower() == "nan":
-        return ""
-    return text
+    return str(value).strip()
 
 
 def _to_float(value: Any, default: float | None = 0) -> float | None:
@@ -115,6 +112,14 @@ def _route_header(value: Any) -> tuple[str, str | None] | None:
     if not match:
         return None
     return f"ML {match.group('number')}", _normalize_date(match.group("date"))
+
+
+def _route_header_in_row(row: list[Any]) -> tuple[str, str | None] | None:
+    for value in row:
+        header = _route_header(value)
+        if header:
+            return header
+    return None
 
 
 def _find_header_row(raw_rows: list[list[Any]]) -> int:
@@ -216,7 +221,7 @@ def parse_excel_routes(path: str | Path, include_empty: bool = False) -> list[Pa
     if missing:
         raise ValueError(f"Excel file is missing required columns: {', '.join(missing)}")
 
-    has_route_headers = any(_route_header(_cell(row, 0)) for row in rows[header_row_number:])
+    has_route_headers = any(_route_header_in_row(row) for row in rows[header_row_number:])
 
     routes: list[ParsedRoute] = []
     current_code: str | None = None if has_route_headers else "ROUTE 1"
@@ -244,7 +249,7 @@ def parse_excel_routes(path: str | Path, include_empty: bool = False) -> list[Pa
         points = []
 
     for row_number, row in enumerate(rows[header_row_number:], start=header_row_number + 1):
-        header = _route_header(_cell(row, 0))
+        header = _route_header_in_row(row)
         if header:
             flush()
             current_code, current_date = header

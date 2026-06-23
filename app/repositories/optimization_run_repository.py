@@ -22,7 +22,7 @@ class OptimizationRunRepository:
             .first()
         )
 
-    def create_queued(self, route_job_id: int) -> OptimizationRun:
+    def create_queued(self, route_job_id: int, *, commit: bool = True) -> OptimizationRun:
         run = OptimizationRun(
             route_job_id=route_job_id,
             status="queued",
@@ -31,8 +31,11 @@ class OptimizationRunRepository:
             message="Optimization is queued.",
         )
         self.db.add(run)
-        self.db.commit()
-        self.db.refresh(run)
+        if commit:
+            self.db.commit()
+            self.db.refresh(run)
+        else:
+            self.db.flush()
         return run
 
     def list_for_route(self, route_job_id: int, limit: int = 25) -> list[OptimizationRun]:

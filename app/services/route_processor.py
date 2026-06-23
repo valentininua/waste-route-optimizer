@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from app.services.optimizer import optimize_open_route
 from app.services.routing import distance_duration_matrix, polyline_for_order, route_for_order
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
@@ -259,6 +261,10 @@ async def optimize_job(db: Session, job_id: int, run_id: int | None = None) -> d
         return job_to_resource(job, include_points=True)
     except Exception as exc:
         failure_message = str(exc)
+        logger.exception(
+            "Route optimization failed before recovery status update",
+            extra={"route_job_id": job_id, "optimization_run_id": run_id},
+        )
         db.rollback()
         try:
             failed_job = db.get(RouteJob, job_id)
@@ -268,6 +274,10 @@ async def optimize_job(db: Session, job_id: int, run_id: int | None = None) -> d
                 db.add(failed_job)
                 db.commit()
         except Exception:
+            logger.exception(
+                "Failed to persist RouteJob failure status",
+                extra={"route_job_id": job_id, "optimization_run_id": run_id},
+            )
             db.rollback()
         try:
             _update_run(
@@ -281,6 +291,10 @@ async def optimize_job(db: Session, job_id: int, run_id: int | None = None) -> d
                 finished=True,
             )
         except Exception:
+            logger.exception(
+                "Failed to persist OptimizationRun failure status",
+                extra={"route_job_id": job_id, "optimization_run_id": run_id},
+            )
             db.rollback()
         raise
 

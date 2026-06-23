@@ -9,6 +9,7 @@ import { renderRouteListSummary, renderRouteSummary, renderRunSummary, renderUpl
 import './styles.css';
 
 const POLLING_INTERVAL_MS = 2500;
+const MAX_CONSECUTIVE_POLL_ERRORS = 3;
 
 export default function App() {
   const [routes, setRoutes] = useState([]);
@@ -22,6 +23,7 @@ export default function App() {
   const [originalGeometry, setOriginalGeometry] = useState([]);
   const [optimizedGeometry, setOptimizedGeometry] = useState([]);
   const pollingRef = useRef(null);
+  const pollingErrorCountRef = useRef(0);
 
   const selectedRoute = useMemo(
     () => routes.find((route) => String(route.id) === String(selectedRouteId)),
@@ -31,6 +33,7 @@ export default function App() {
   const stopPolling = useCallback(() => {
     if (pollingRef.current) window.clearInterval(pollingRef.current);
     pollingRef.current = null;
+    pollingErrorCountRef.current = 0;
   }, []);
 
   const loadGeometries = useCallback(async (route) => {
@@ -131,6 +134,7 @@ export default function App() {
 
   const pollRun = useCallback(async (runId) => {
     const run = await getOptimizationRun(runId);
+    pollingErrorCountRef.current = 0;
     setRawApiResponse(run);
     setStatusText(renderRunSummary(run));
     setProgressPercent(run.progress_percent ?? 0);
@@ -168,9 +172,15 @@ export default function App() {
       setProgressStage(run.stage || run.status);
       pollingRef.current = window.setInterval(() => {
         pollRun(run.id).catch((error) => {
-          stopPolling();
-          setIsBusy(false);
-          setStatusText(error.message);
+          pollingErrorCountRef.current += 1;
+          if (pollingErrorCountRef.current >= MAX_CONSECUTIVE_POLL_ERRORS) {
+            stopPolling();
+            setIsBusy(false);
+            setProgressStage('Polling failed');
+            setStatusText(`${error.message} Polling stopped after ${MAX_CONSECUTIVE_POLL_ERRORS} consecutive failures.`);
+            return;
+          }
+          setStatusText(`${error.message} Retrying status polling (${pollingErrorCountRef.current}/${MAX_CONSECUTIVE_POLL_ERRORS})...`);
         });
       }, POLLING_INTERVAL_MS);
       await pollRun(run.id);

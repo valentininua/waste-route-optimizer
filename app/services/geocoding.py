@@ -327,6 +327,10 @@ def _store_cache_aliases(
     it. Two parallel optimization runs could pass that check at the same time and
     then one of them would fail on the unique query constraint. Here the database
     owns deduplication through INSERT .. ON CONFLICT DO NOTHING where supported.
+
+    This function intentionally commits cache entries immediately. The geocode
+    cache is reusable auxiliary data, so it is allowed to survive even if the
+    surrounding route optimization transaction later fails and rolls back.
     """
     rows = []
     for alias in candidates:

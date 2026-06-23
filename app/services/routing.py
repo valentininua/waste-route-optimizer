@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import math
 
 import httpx
 from app.core.config import get_settings
 
 settings = get_settings()
-Coord = tuple[float, float]  # lat, lng
+LatLng = tuple[float, float]  # internal convention: (lat, lng)
+Coord = LatLng  # backward-compatible alias for tests/imports
 
 
 class OSRMProviderError(RuntimeError):
     """Raised when OSRM cannot return a valid road-based route/matrix."""
 
 
-def haversine_m(a: Coord, b: Coord) -> float:
+def haversine_m(a: LatLng, b: LatLng) -> float:
     r = 6371000
     lat1, lon1 = math.radians(a[0]), math.radians(a[1])
     lat2, lon2 = math.radians(b[0]), math.radians(b[1])
@@ -23,7 +25,7 @@ def haversine_m(a: Coord, b: Coord) -> float:
     return 2 * r * math.asin(math.sqrt(h))
 
 
-def _fallback_matrix(coords: list[Coord]) -> tuple[list[list[float]], list[list[float]]]:
+def _fallback_matrix(coords: list[LatLng]) -> tuple[list[list[float]], list[list[float]]]:
     distances = [[0.0] * len(coords) for _ in coords]
     durations = [[0.0] * len(coords) for _ in coords]
     for i, a in enumerate(coords):
@@ -36,7 +38,7 @@ def _fallback_matrix(coords: list[Coord]) -> tuple[list[list[float]], list[list[
     return distances, durations
 
 
-def _fallback_order_total(coords: list[Coord], order: list[int]) -> tuple[float, float, list[list[float]], str]:
+def _fallback_order_total(coords: list[LatLng], order: list[int]) -> tuple[float, float, list[list[float]], str]:
     total_d = 0.0
     geometry: list[list[float]] = []
     for left, right in zip(order, order[1:]):
@@ -53,24 +55,51 @@ def _is_public_osrm() -> bool:
     return "router.project-osrm.org" in settings.osrm_url.lower()
 
 
-async def route_leg(a: Coord, b: Coord) -> tuple[float, float, list[list[float]]]:
+async def _request_with_retries(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    params: dict[str, str],
+    operation: str,
+) -> httpx.Response:
+    attempts = max(1, settings.osrm_retry_attempts + 1)
+    last_error: OSRMProviderError | None = None
+
+    for attempt in range(1, attempts + 1):
+        try:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            return response
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            last_error = OSRMProviderError(f"OSRM {operation} HTTP {status}: {exc}")
+            # 4xx errors are usually deterministic request/provider limits; retrying
+            # them just burns time. Retry only transient/server-side failures.
+            if status < 500 and status not in {408, 409, 425, 429}:
+                raise last_error from exc
+        except httpx.TimeoutException as exc:
+            last_error = OSRMProviderError(f"OSRM {operation} timed out: {exc}")
+        except httpx.RequestError as exc:
+            last_error = OSRMProviderError(f"OSRM {operation} request failed: {exc}")
+
+        if attempt < attempts:
+            await asyncio.sleep(settings.osrm_retry_backoff_seconds * attempt)
+
+    assert last_error is not None
+    raise last_error
+
+
+async def route_leg(a: LatLng, b: LatLng) -> tuple[float, float, list[list[float]]]:
     distance, duration, geometry, _source = await route_for_order([a, b], [0, 1], overview="full")
     return distance, duration, geometry
 
 
-async def _osrm_route_chunk(chunk_coords: list[Coord], overview: str = "false") -> tuple[float, float, list[list[float]]]:
+async def _osrm_route_chunk(chunk_coords: list[LatLng], overview: str = "false") -> tuple[float, float, list[list[float]]]:
     coord_text = ";".join(f"{lng},{lat}" for lat, lng in chunk_coords)
     url = f"{settings.osrm_url.rstrip('/')}/route/v1/driving/{coord_text}"
     params = {"overview": overview, "geometries": "geojson"}
-    try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        status = exc.response.status_code
-        raise OSRMProviderError(f"OSRM route HTTP {status}: {exc}") from exc
-    except httpx.RequestError as exc:
-        raise OSRMProviderError(f"OSRM route request failed: {exc}") from exc
+    async with httpx.AsyncClient(timeout=settings.osrm_route_timeout_seconds) as client:
+        response = await _request_with_retries(client, url, params=params, operation="route")
 
     try:
         data = response.json()
@@ -88,7 +117,7 @@ async def _osrm_route_chunk(chunk_coords: list[Coord], overview: str = "false") 
 
 
 async def route_for_order(
-    coords: list[Coord],
+    coords: list[LatLng],
     order: list[int],
     overview: str = "false",
 ) -> tuple[float, float, list[list[float]], str]:
@@ -131,7 +160,7 @@ async def route_for_order(
         ) from exc
 
 
-async def distance_duration_matrix(coords: list[Coord]) -> tuple[list[list[float]], list[list[float]], str]:
+async def distance_duration_matrix(coords: list[LatLng]) -> tuple[list[list[float]], list[list[float]], str]:
     if not coords:
         return [], [], "empty"
     if len(coords) == 1:
@@ -157,9 +186,8 @@ async def distance_duration_matrix(coords: list[Coord]) -> tuple[list[list[float
     params = {"annotations": "distance,duration"}
 
     try:
-        async with httpx.AsyncClient(timeout=180) as client:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
+        async with httpx.AsyncClient(timeout=settings.osrm_table_timeout_seconds) as client:
+            response = await _request_with_retries(client, url, params=params, operation="table")
         try:
             data = response.json()
         except ValueError as exc:
@@ -173,10 +201,6 @@ async def distance_duration_matrix(coords: list[Coord]) -> tuple[list[list[float
                 raise OSRMProviderError(f"OSRM table response has unexpected shape: {data}") from exc
             return distances, durations, "osrm_table"
         raise OSRMProviderError(f"OSRM table error: {data}")
-    except httpx.HTTPStatusError as exc:
-        provider_error = OSRMProviderError(f"OSRM table HTTP {exc.response.status_code}: {exc}")
-    except httpx.RequestError as exc:
-        provider_error = OSRMProviderError(f"OSRM table request failed: {exc}")
     except OSRMProviderError as exc:
         provider_error = exc
 
@@ -190,6 +214,6 @@ async def distance_duration_matrix(coords: list[Coord]) -> tuple[list[list[float
     ) from provider_error
 
 
-async def polyline_for_order(coords: list[Coord], order: list[int]) -> tuple[float, float, list[list[float]]]:
+async def polyline_for_order(coords: list[LatLng], order: list[int]) -> tuple[float, float, list[list[float]]]:
     distance_m, duration_s, geometry, _source = await route_for_order(coords, order, overview="full")
     return distance_m, duration_s, geometry

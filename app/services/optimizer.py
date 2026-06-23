@@ -28,17 +28,24 @@ def _two_opt_delta(order: list[int], matrix: list[list[float]], i: int, k: int) 
     """Return route-cost delta for reversing order[i:k+1].
 
     OSRM road matrices can be asymmetric: distance A→B may differ from B→A.
-    Therefore, reversing a segment changes both the two boundary connections and
-    the internal edge directions. We still avoid recalculating the unchanged
-    prefix/suffix and avoid allocating a candidate route for every trial.
+    Therefore, reversing a segment changes the left boundary, the internal edge
+    directions and, when the segment is not the tail, the right boundary too.
+
+    For an open route only the first node is fixed. The last node is not a depot
+    by default, so 2-opt must also be allowed to reverse a tail segment where
+    ``k`` is the final index.
     """
     before = order[i - 1]
     first = order[i]
     last = order[k]
-    after = order[k + 1]
+    after = order[k + 1] if k + 1 < len(order) else None
 
-    old_boundary = matrix[before][first] + matrix[last][after]
-    new_boundary = matrix[before][last] + matrix[first][after]
+    old_boundary = matrix[before][first]
+    new_boundary = matrix[before][last]
+    if after is not None:
+        old_boundary += matrix[last][after]
+        new_boundary += matrix[first][after]
+
     old_internal = sum(matrix[order[x]][order[x + 1]] for x in range(i, k))
     new_internal = sum(matrix[order[x + 1]][order[x]] for x in range(i, k))
     return (new_boundary + new_internal) - (old_boundary + old_internal)
@@ -52,9 +59,10 @@ def two_opt_open_path(order: list[int], matrix: list[list[float]], max_iteration
     while improved and iterations < max_iterations:
         improved = False
         iterations += 1
-        # Keep first node fixed; this normally represents the first point/depot from original route.
-        for i in range(1, len(best) - 2):
-            for k in range(i + 1, len(best) - 1):
+        # Keep only the first node fixed; the final point is allowed to move
+        # because this is an open route unless a depot/end point is modelled explicitly.
+        for i in range(1, len(best) - 1):
+            for k in range(i + 1, len(best)):
                 delta = _two_opt_delta(best, matrix, i, k)
                 if delta < -_EPSILON:
                     best[i : k + 1] = reversed(best[i : k + 1])

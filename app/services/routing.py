@@ -9,6 +9,10 @@ settings = get_settings()
 Coord = tuple[float, float]  # lat, lng
 
 
+class OSRMProviderError(RuntimeError):
+    """Raised when OSRM cannot return a valid road-based route/matrix."""
+
+
 def haversine_m(a: Coord, b: Coord) -> float:
     r = 6371000
     lat1, lon1 = math.radians(a[0]), math.radians(a[1])
@@ -58,15 +62,29 @@ async def _osrm_route_chunk(chunk_coords: list[Coord], overview: str = "false") 
     coord_text = ";".join(f"{lng},{lat}" for lat, lng in chunk_coords)
     url = f"{settings.osrm_url.rstrip('/')}/route/v1/driving/{coord_text}"
     params = {"overview": overview, "geometries": "geojson"}
-    async with httpx.AsyncClient(timeout=120) as client:
-        response = await client.get(url, params=params)
-        response.raise_for_status()
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        raise OSRMProviderError(f"OSRM route HTTP {status}: {exc}") from exc
+    except httpx.RequestError as exc:
+        raise OSRMProviderError(f"OSRM route request failed: {exc}") from exc
+
+    try:
         data = response.json()
+    except ValueError as exc:
+        raise OSRMProviderError("OSRM route response is not valid JSON") from exc
+
     if data.get("code") != "Ok" or not data.get("routes"):
-        raise ValueError(f"OSRM route error: {data}")
+        raise OSRMProviderError(f"OSRM route error: {data}")
     route = data["routes"][0]
-    geometry = route.get("geometry", {}).get("coordinates") or []
-    return float(route["distance"]), float(route["duration"]), geometry
+    try:
+        geometry = route.get("geometry", {}).get("coordinates") or []
+        return float(route["distance"]), float(route["duration"]), geometry
+    except (KeyError, TypeError, ValueError) as exc:
+        raise OSRMProviderError(f"OSRM route response has unexpected shape: {data}") from exc
 
 
 async def route_for_order(
@@ -104,7 +122,7 @@ async def route_for_order(
                     geometry.extend(chunk_geometry)
             start += max_waypoints - 1
         return total_d, total_t, geometry, "osrm_road"
-    except Exception as exc:
+    except OSRMProviderError as exc:
         if settings.allow_haversine_fallback:
             return _fallback_order_total(coords, order)
         raise ValueError(
@@ -142,21 +160,34 @@ async def distance_duration_matrix(coords: list[Coord]) -> tuple[list[list[float
         async with httpx.AsyncClient(timeout=180) as client:
             response = await client.get(url, params=params)
             response.raise_for_status()
+        try:
             data = response.json()
+        except ValueError as exc:
+            raise OSRMProviderError("OSRM table response is not valid JSON") from exc
+
         if data.get("code") == "Ok" and data.get("distances") and data.get("durations"):
-            distances = [[float(v or 0) for v in row] for row in data["distances"]]
-            durations = [[float(v or 0) for v in row] for row in data["durations"]]
+            try:
+                distances = [[float(v or 0) for v in row] for row in data["distances"]]
+                durations = [[float(v or 0) for v in row] for row in data["durations"]]
+            except (TypeError, ValueError) as exc:
+                raise OSRMProviderError(f"OSRM table response has unexpected shape: {data}") from exc
             return distances, durations, "osrm_table"
-        raise ValueError(f"OSRM table error: {data}")
-    except Exception as exc:
-        if settings.allow_haversine_fallback:
-            distances, durations = _fallback_matrix(coords)
-            return distances, durations, "haversine_matrix_fallback"
-        raise ValueError(
-            "OSRM table request failed. Road-based distances are required by strict mode, so the "
-            "application does not silently use straight-line fallback. For local development only, "
-            "set ALLOW_HAVERSINE_FALLBACK=true. Original error: " + str(exc)
-        ) from exc
+        raise OSRMProviderError(f"OSRM table error: {data}")
+    except httpx.HTTPStatusError as exc:
+        provider_error = OSRMProviderError(f"OSRM table HTTP {exc.response.status_code}: {exc}")
+    except httpx.RequestError as exc:
+        provider_error = OSRMProviderError(f"OSRM table request failed: {exc}")
+    except OSRMProviderError as exc:
+        provider_error = exc
+
+    if settings.allow_haversine_fallback:
+        distances, durations = _fallback_matrix(coords)
+        return distances, durations, "haversine_matrix_fallback"
+    raise ValueError(
+        "OSRM table request failed. Road-based distances are required by strict mode, so the "
+        "application does not silently use straight-line fallback. For local development only, "
+        "set ALLOW_HAVERSINE_FALLBACK=true. Original error: " + str(provider_error)
+    ) from provider_error
 
 
 async def polyline_for_order(coords: list[Coord], order: list[int]) -> tuple[float, float, list[list[float]]]:
